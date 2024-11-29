@@ -32,10 +32,7 @@ final class TrainingPlanTests: XCTestCase {
                 "description": "Basic easy run",
                 "segments": [
                     {
-                        "intensity": {
-                            "value": 65.0,
-                            "metric": "hr_max"
-                        },
+                        "intensity": "0.65 hr_max",
                         "work": "30:00"
                     }
                 ]
@@ -45,10 +42,8 @@ final class TrainingPlanTests: XCTestCase {
         
         // When
         let decoder = JSONDecoder()
-        let plan = try decoder.decode(TrainingPlan.self, from: json)
         let mockResolver = MockRemoteResolver(data: mockResponses)
-        let remoteDecoder = RemoteDecoder(decoder: decoder, resolver: mockResolver)
-        try await plan.resolve(using: remoteDecoder)
+        let plan = try await TrainingPlan(from: json, using: decoder, resolver: mockResolver)
         
         // Then
         XCTAssertEqual(plan.name, "5K Training Plan")
@@ -56,8 +51,7 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual(plan.weeks.count, 1)
         XCTAssertEqual(plan.weeks[0].days.count, 1)
         
-        // Resolve and check workout
-        try await plan.resolve(using: remoteDecoder)
+        // Check workout
         let workout = try XCTUnwrap(plan.weeks[0].days[0].workouts[0].template)
         XCTAssertEqual(workout.name, "Easy Run")
         XCTAssertEqual(workout.segments.count, 1)
@@ -101,45 +95,17 @@ final class TrainingPlanTests: XCTestCase {
     
     func testIntensityHandling() throws {
         // Test direct intensity
-        let directIntensityJSON = """
-        {
-            "value": 0.70,
-            "metric": "vo2max"
-        }
-        """.data(using: .utf8)!
+        let json = #""0.70vo2max""#.data(using: .utf8)!
         
-        let intensity = try JSONDecoder().decode(Intensity.self, from: directIntensityJSON)
+        let intensity = try JSONDecoder().decode(_Intensity.self, from: json)
         XCTAssertEqual(intensity.value, 0.70)
         XCTAssertEqual(intensity.metric, .vo2max)
-        
-        // Test zone-based intensity
-        let zoneSystem = ZoneSystem(
-            name: "Daniels",
-            description: "Daniels Running Formula Zones",
-            zones: [
-                ZoneDefinition(
-                    code: "E",
-                    name: "Easy",
-                    description: "Easy pace",
-                    metric: .vo2max,
-                    targetIntensity: 0.65,
-                    intensityRange: 0.60...0.70
-                )
-            ]
-        )
-        
-        let zoneIntensity = try Intensity(zoneSystem: zoneSystem, zoneCode: "E")
-        XCTAssertEqual(zoneIntensity.value, 0.65)
-        XCTAssertEqual(zoneIntensity.metric, .vo2max)
     }
     
     func testWorkoutSegmentHandling() throws {
         let json = """
         {
-            "intensity": {
-                "value": 0.80,
-                "metric": "hr_max"
-            },
+            "intensity": "0.80 hr_max",
             "work": "400 m",
             "recovery": "1:00",
             "iterations": 8,
@@ -147,7 +113,7 @@ final class TrainingPlanTests: XCTestCase {
         }
         """.data(using: .utf8)!
         
-        let segment = try JSONDecoder().decode(WorkoutSegment.self, from: json)
+        let segment = try JSONDecoder().decode(_WorkoutSegment.self, from: json)
         XCTAssertEqual(segment.intensity.value, 0.80)
         XCTAssertEqual(segment.intensity.metric, .hrMax)
         
@@ -173,6 +139,7 @@ final class TrainingPlanTests: XCTestCase {
         {
             "name": "Flexible Plan",
             "description": "Plan with alternate workouts",
+            "zoneSystem": "https://api.example.com/systems/daniels",
             "weeks": [
                 {
                     "days": [
@@ -195,20 +162,17 @@ final class TrainingPlanTests: XCTestCase {
         
         let mockResponses: [URL: Data] = [
             URL(string: "https://api.example.com/systems/daniels")!: try JSONEncoder().encode(TestZoneSystems.danielsSystem),
-            URL(string: "https://api.example.com/workouts/tempo")!: #"{"name": "Tempo Run", "segments": [{"intensity":{"zoneSystem":"https://api.example.com/systems/daniels","zoneCode":"T"},"work":"5:00","recovery":"1:00"}]}"#.data(using: .utf8)!,
-            URL(string: "https://api.example.com/workouts/hills")!: #"{"name": "Hill Workout", "segments": [{"intensity":{"zoneSystem":"https://api.example.com/systems/daniels","zoneCode":"R"},"work":"1:00","recovery":"2:00"}]}"#.data(using: .utf8)!,
-            URL(string: "https://api.example.com/workouts/intervals")!: #"{"name": "Interval Session", "segments": [{"intensity":{"zoneSystem":"https://api.example.com/systems/daniels","zoneCode":"I"},"work":"3:00","recovery":"3:00"}]}"#.data(using: .utf8)!
+            URL(string: "https://api.example.com/workouts/tempo")!: #"{"name": "Tempo Run", "segments": [{"intensity": "0.88 vo2max","work":"5:00","recovery":"1:00"}]}"#.data(using: .utf8)!,
+            URL(string: "https://api.example.com/workouts/hills")!: #"{"name": "Hill Workout", "segments": [{"intensity": "1.0 vo2max","work":"1:00","recovery":"2:00"}]}"#.data(using: .utf8)!,
+            URL(string: "https://api.example.com/workouts/intervals")!: #"{"name": "Interval Session", "segments": [{"intensity":"0.95 vo2max","work":"3:00","recovery":"3:00"}]}"#.data(using: .utf8)!
         ]
         
         let decoder = JSONDecoder()
-        let plan = try decoder.decode(TrainingPlan.self, from: json)
         let mockResolver = MockRemoteResolver(data: mockResponses)
-        let remoteDecoder = RemoteDecoder(decoder: decoder, resolver: mockResolver)
-        
-        try await plan.resolve(using: remoteDecoder)
-        
+        let plan = try await TrainingPlan(from: json, using: decoder, resolver: mockResolver)
         let workout = plan.weeks[0].days[0].workouts[0]
-        XCTAssertEqual(workout.template?.name, "Tempo Run")
+        
+        XCTAssertEqual(workout.template.name, "Tempo Run")
         XCTAssertEqual(workout.alternates?.count, 2)
         XCTAssertEqual(workout.alternates?[0].name, "Hill Workout")
         XCTAssertEqual(workout.alternates?[1].name, "Interval Session")

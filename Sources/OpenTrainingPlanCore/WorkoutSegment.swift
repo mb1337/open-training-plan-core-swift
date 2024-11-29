@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a repeatable segment of a workout
-public struct WorkoutSegment: Codable, RemoteResolvable {
+public struct WorkoutSegment: Codable {
     /// The intensity level for this segment
     public let intensity: Intensity
     
@@ -36,16 +36,42 @@ public struct WorkoutSegment: Codable, RemoteResolvable {
         self.label = label
     }
     
-    public init(from decoder: Decoder) throws {
+    init(_ segment: _WorkoutSegment) {
+        self.intensity = .init(segment.intensity)
+        self.work = segment.work
+        self.iterations = segment.iterations
+        self.recovery = segment.recovery
+        self.label = segment.label
+    }
+}
+
+/// Internal implementation
+struct _WorkoutSegment: Codable, RemoteResolvable {
+    /// The intensity level for this segment
+    let intensity: _Intensity
+    
+    /// The work portion of the segment
+    let work: WorkoutMeasure
+    
+    /// The recovery portion of the segment (optional)
+    let recovery: WorkoutMeasure?
+    
+    /// Number of times to repeat this segment
+    let iterations: Int
+    
+    /// Optional label for this segment
+    let label: String?
+    
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        intensity = try container.decode(Intensity.self, forKey: .intensity)
+        intensity = try container.decode(_Intensity.self, forKey: .intensity)
         work = try container.decode(WorkoutMeasure.self, forKey: .work)
         recovery = try container.decodeIfPresent(WorkoutMeasure.self, forKey: .recovery)
         iterations = try container.decodeIfPresent(Int.self, forKey: .iterations) ?? 1;
         label = try container.decodeIfPresent(String.self, forKey: .label)
     }
     
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(intensity, forKey: .intensity)
         try container.encode(work, forKey: .work)

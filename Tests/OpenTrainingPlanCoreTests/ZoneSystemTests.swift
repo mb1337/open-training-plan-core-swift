@@ -114,30 +114,6 @@ final class ZoneSystemTests: XCTestCase {
         XCTAssertTrue(allZones.map(\.targetIntensity).isSorted())
     }
     
-    func testDirectIntensityValues() throws {
-        let json = """
-        {
-            "intensity": {
-                "value": 0.80,
-                "metric": "hr_max"
-            },
-            "work": "5:00"
-        }
-        """.data(using: .utf8)!
-        
-        let segment = try JSONDecoder().decode(WorkoutSegment.self, from: json)
-        XCTAssertEqual(segment.intensity.value, 0.80)
-        XCTAssertEqual(segment.intensity.metric, .hrMax)
-    }
-    
-    func testIntensityFromZone() throws {
-        // Test creating intensity from zone reference
-        let intensity = try Intensity(zoneSystem: TestZoneSystems.danielsSystem, zoneCode: "T")
-        XCTAssertEqual(intensity.value, 0.88)
-        XCTAssertEqual(intensity.metric, .vo2max)
-        XCTAssertEqual(intensity.zoneCode, "T")
-    }
-    
     func testRemoteZoneSystem() async throws {
         let json = """
         {
@@ -145,17 +121,14 @@ final class ZoneSystemTests: XCTestCase {
             "description": "Test workout",
             "segments": [
                 {
-                    "intensity": {
-                        "value": 0.80,
-                        "metric": "vo2max"
-                    },
+                    "intensity": "0.80 vo2max",
                     "work": "5:00"
                 }
             ]
         }
         """.data(using: .utf8)!
         
-        let workout = try JSONDecoder().decode(WorkoutTemplate.self, from: json)
+        let workout = try JSONDecoder().decode(_WorkoutTemplate.self, from: json)
         XCTAssertEqual(workout.segments.first?.intensity.value, 0.80)
     }
     
@@ -201,44 +174,41 @@ final class ZoneSystemTests: XCTestCase {
         XCTAssertEqual(easyZone.intensityRange?.upperBound, 0.70)
     }
     
-    func testComplexWorkoutWithZones() throws {
+    func testComplexWorkoutWithZones() async throws {
         let json = """
         {
             "name": "Mixed Zone Workout",
             "description": "Workout using different intensities",
             "segments": [
                 {
-                    "intensity": {
-                        "value": 0.65,
-                        "metric": "vo2max"
-                    },
+                    "intensity": "0.65 vo2max",
                     "work": "10:00"
                 },
                 {
-                    "intensity": {
-                        "value": 0.88,
-                        "metric": "vo2max"
-                    },
+                    "intensity": "0.88 vo2max",
                     "work": "5:00",
                     "recovery": "2:00",
                     "iterations": 4
                 },
                 {
-                    "intensity": {
-                        "value": 0.70,
-                        "metric": "vo2max"
-                    },
+                    "intensity": "0.70 vo2max",
                     "work": "10:00"
                 }
             ]
         }
         """.data(using: .utf8)!
         
-        let workout = try JSONDecoder().decode(WorkoutTemplate.self, from: json)
+        let decoder = JSONDecoder()
+        let context = TrainingContext()
+        context.setZoneSystem(.init(TestZoneSystems.danielsSystem))
+        let workout = try await WorkoutTemplate(from: json, using: decoder, context: context)
         XCTAssertEqual(workout.segments.count, 3)
         XCTAssertEqual(workout.segments[0].intensity.value, 0.65)
+        XCTAssertEqual(workout.segments[0].intensity.zone?.code, "E")
         XCTAssertEqual(workout.segments[1].intensity.value, 0.88)
+        XCTAssertEqual(workout.segments[1].intensity.zone?.code, "T")
         XCTAssertEqual(workout.segments[2].intensity.value, 0.70)
+        XCTAssertNil(workout.segments[2].intensity.zone?.code)
     }
 }
 

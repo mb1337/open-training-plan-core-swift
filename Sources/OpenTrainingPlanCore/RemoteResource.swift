@@ -36,7 +36,7 @@ public final class RemoteResource<Value: Codable>: Codable, RemoteResolvable {
     
     public func resolve(using decoder: RemoteDecoder) async throws {
         if let url = remoteURL {
-            wrappedValue = try await decoder.decode(url)
+            wrappedValue = try await decoder.decode(url: url)
             if let resolvable = wrappedValue as? RemoteResolvable {
                 try await resolvable.resolve(using: decoder)
             }
@@ -133,7 +133,7 @@ public final class RemoteResourceList<Element: Codable>: Codable, RemoteResolvab
         for element in elements {
             switch element {
             case .left(let url):
-                let value: Element = try await decoder.decode(url)
+                let value: Element = try await decoder.decode(url: url)
                 resolved.append(value)
                 if let resolvable = value as? RemoteResolvable {
                     try await resolvable.resolve(using: decoder)
@@ -177,7 +177,7 @@ public protocol RemoteResolver {
 }
 
 public protocol DataDecoder {
-    func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T
+    func decode<T: Decodable>(_ type: T.Type, from data: Data, userInfo: [CodingUserInfoKey : Any]) throws -> T
 }
 
 public struct DefaultRemoteResolver: RemoteResolver {
@@ -195,6 +195,7 @@ public struct DefaultRemoteResolver: RemoteResolver {
 public struct RemoteDecoder {
     private let decoder: DataDecoder
     private let resolver: RemoteResolver
+    private let userInfo: [CodingUserInfoKey : Any]
     
     private class Cache {
         struct Entry {
@@ -211,21 +212,31 @@ public struct RemoteDecoder {
     private let cache: Cache = .init()
     
     
-    public init(decoder: DataDecoder, resolver: RemoteResolver = DefaultRemoteResolver()) {
+    public init(decoder: DataDecoder, userInfo: [CodingUserInfoKey : Any] = [:], resolver: RemoteResolver = DefaultRemoteResolver()) {
         self.decoder = decoder
         self.resolver = resolver
+        self.userInfo = userInfo
     }
     
-    public func decode<T: Decodable>(_ url: URL) async throws -> T {
+    public func decode<T: Decodable>(url: URL) async throws -> T {
         if let entry = cache.get(url) {
             return entry.value as! T
         }
         let data = try await resolver.resolve(url)
-        let value = try decoder.decode(T.self, from: data)
+        let value: T = try decode(data: data)
         cache.set(value, for: url)
         return value
     }
+    
+    public func decode<T: Decodable>(data: Data) throws -> T {
+        return try decoder.decode(T.self, from: data, userInfo: userInfo)
+    }
 }
 
-extension JSONDecoder: DataDecoder {}
+extension JSONDecoder: DataDecoder {
+    public func decode<T: Decodable>(_ type: T.Type, from data: Data, userInfo: [CodingUserInfoKey : Any]) throws -> T {
+        self.userInfo = userInfo
+        return try decode(T.self, from: data)
+    }
+}
 extension YAMLDecoder: DataDecoder {}
